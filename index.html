@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Territorial — Multiplayer Enhanced</title>
+<style>
+html,body{margin:0;padding:0;overflow:hidden;background:#0d1117;font-family:Tahoma,Arial,sans-serif}
+canvas{display:block;touch-action:none}
+/* Lobby */
+#lobby{position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0d1117,#111827,#1a2333)}
+.card{background:rgba(6,10,18,0.85);backdrop-filter:blur(8px);padding:22px;border-radius:14px;width:360px;box-shadow:0 12px 40px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.04);color:#e6eef8}
+.card h1{margin:0 0 12px;font-size:20px;text-align:center}
+label{display:block;color:#aeb9c8;margin-top:10px}
+select,input[type=range]{width:100%;margin:8px 0;padding:10px;border-radius:10px;border:none;background:#101521;color:#fff}
+button{padding:12px;border-radius:10px;border:none;cursor:pointer;font-weight:700}
+.green{background:#16a34a;color:white}
+#ratioBar{position:fixed;left:50%;transform:translateX(-50%);bottom:12px;background:rgba(255,255,255,0.92);padding:10px 12px;border-radius:14px;display:flex;align-items:center;gap:12px;z-index:1800}
+#ratioBar input{width:160px}
+#legend{position:fixed;left:12px;top:12px;z-index:1800;color:white;display:flex;flex-direction:column;gap:6px}
+.legend-item{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,0.03);padding:6px 8px;border-radius:8px}
+#dbg{position:fixed;right:8px;bottom:8px;z-index:2200;background:rgba(0,0,0,0.7);color:#fff;padding:8px;border-radius:8px;font-size:12px;display:none;max-width:40vw}
+#mainMenuBtn{position:fixed;right:12px;top:12px;z-index:2100;background:#2563eb;color:white;padding:8px 12px;border-radius:10px;box-shadow:0 8px 20px rgba(0,0,0,0.3);cursor:pointer}
+#victoryOverlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:3000}
+#victoryCard{background:linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03));backdrop-filter:blur(8px);padding:28px;border-radius:16px;text-align:center;color:white;box-shadow:0 30px 80px rgba(0,0,0,0.6)}
+#victoryCard h1{margin:8px 0 6px 0;font-size:32px}
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+<canvas id="lineLayer" style="position:fixed;inset:0;pointer-events:none;z-index:1700"></canvas>
+
+<div id="ratioBar" aria-hidden="false">
+  <span style="font-weight:700">القوات:</span>
+  <input id="ratioSlider" type="range" min="10" max="100" value="50">
+  <span id="ratioValue">50%</span>
+</div>
+
+<div id="mainMenuBtn" role="button">⟵ رجوع</div>
+
+<div id="lobby" role="dialog" aria-label="Lobby">
+  <div class="card">
+    <h1>لوبي اللعبة</h1>
+
+    <label>عدد اللاعبين</label>
+    <select id="playerCount">
+      <option value="2">2</option>
+      <option value="3">3</option>
+      <option value="4" selected>4</option>
+    </select>
+
+    <label>معدل الإنتاج (مللي ثانية)</label>
+    <input id="prodRate" type="range" min="300" max="2000" value="900">
+
+    <div style="margin-top:12px">
+      <button id="startBtn" class="green" style="width:100%">ابدأ (اوفلاين)</button>
+
+    <style>
+    #onlineBtn {display:block;margin:14px auto;padding:12px 18px;background:#0b8f3b;color:#fff;border-radius:10px;border:none;cursor:pointer;font-weight:700}
+    #lobbyModal {display:none;position:fixed;z-index:9999;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;padding:20px}
+    #lobbyBox {background:#111;color:#fff;border-radius:12px;padding:16px;max-width:420px;width:100%}
+    #lobbyBox input, #lobbyBox button {width:100%;padding:10px;margin:8px 0;border-radius:8px;border:1px solid #333;background:#0f0f10;color:#fff}
+    #playersList {max-height:160px;overflow:auto;margin:8px 0;padding:6px;background:#071018;border-radius:6px}
+    .playerItem{padding:6px;border-bottom:1px solid rgba(255,255,255,0.03);display:flex;justify-content:space-between;align-items:center;}
+    .hostBadge{background:#ffd633;color:#000;padding:4px 8px;border-radius:6px;font-weight:700;font-size:12px}
+    </style>
+
+    <button id="onlineBtn">اللعب أونلاين</button>
+
+    <div id="lobbyModal" role="dialog" aria-hidden="true">
+      <div id="lobbyBox">
+        <h2 style="text-align:center;margin:0 0 8px 0;">لوبي أونلاين</h2>
+        <input id="nicknameInput" placeholder="الاسم (مثال: Ali)" />
+        <div style="display:flex;gap:8px;">
+          <button id="createRoomBtn" style="flex:1;background:#2e7d32;">انشاء غرفة</button>
+          <button id="joinRoomBtn" style="flex:1;background:#455a64;">انضم لغرفة</button>
+        </div>
+        <input id="roomIdInput" placeholder="معرف الغرفة (Room ID)" />
+        <div id="playersList" aria-live="polite"></div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button id="startGameBtn" style="flex:1;" disabled>بدء اللعبة (فقط الهوست)</button>
+          <button id="leaveBtn" style="flex:1;display:none;">الخروج</button>
+        </div>
+        <div style="margin-top:8px;font-size:12px;color:#ccc;">قواعد: الحد الأقصى 4 لاعبين. الحد الأدنى لبدء اللعبة: 2</div>
+      </div>
+    </div>
+
+    </div>
+  </div>
+</div>
+
+<div id="legend" aria-hidden="true"></div>
+<div id="dbg" role="status"></div>
+
+<div id="victoryOverlay"><div id="victoryCard"><div class="crown">👑</div><h1 id="victoryText"></h1><div id="victorName" style="font-size:20px;margin-top:6px"></div><button id="victoryToLobby" class="green">العودة للّوبي</button></div></div>
+
+<script>
+// top-level grid
+var grid = [];
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  'use strict';
+  // elements
+  const gameCanvas = document.getElementById('game');
+  const lineCanvas = document.getElementById('lineLayer');
+  const dbg = document.getElementById('dbg');
+  const ratioSlider = document.getElementById('ratioSlider');
+  const ratioValue = document.getElementById('ratioValue');
+  const startBtn = document.getElementById('startBtn');
+  const playerCount = document.getElementById('playerCount');
+  const prodRate = document.getElementById('prodRate');
+  const legendEl = document.getElementById('legend');
+  const mainMenuBtn = document.getElementById('mainMenuBtn');
+  const victoryOverlay = document.getElementById('victoryOverlay');
+  const victoryText = document.getElementById('victoryText');
+  const victorName = document.getElementById('victorName');
+  const victoryToLobby = document.getElementById('victoryToLobby');
+
+  if(!gameCanvas || !lineCanvas){ dbg.style.display='block'; dbg.textContent='خطأ: عناصر الرسم غير موجودة'; return; }
+  const ctx = gameCanvas.getContext('2d');
+  const lctx = lineCanvas.getContext('2d');
+  if(!ctx || !lctx){ dbg.style.display='block'; dbg.textContent='خطأ: تعذر إنشاء سياق 2D'; return; }
+
+  let W=0,H=0;
+  function resize(){ W = gameCanvas.width = window.innerWidth; H = gameCanvas.height = window.innerHeight; lineCanvas.width = W; lineCanvas.height = H; needRender=true; }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // constants
+  const HEX = 34;
+  const DEFEND_RADIUS = HEX * 3.2;
+
+  // state
+  var players = [];
+  var cam = { x:0, y:0, scale:1 };
+  var selected = null;
+  var animations = [];
+  var effects = [];
+  var prodTimer = null, botTimer = null;
+  var dragging=false,lastX=0,lastY=0;
+  var needRender = true;
+
+  // audio helpers
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  const audioCtx = AudioCtx ? new AudioCtx() : null;
+  function playTone(freq,d=0.25,t='sine'){ if(!audioCtx) return; const o=audioCtx.createOscillator(); const g=audioCtx.createGain(); o.type=t; o.frequency.value=f; o.connect(g); g.connect(audioCtx.destination); const now=audioCtx.currentTime; g.gain.setValueAtTime(0.0001,now); g.gain.exponentialRampToValueAtTime(0.12,now+0.01); o.start(now); g.gain.exponentialRampToValueAtTime(0.0001,now+d); o.stop(now+d+0.02); }
+
+  // grid
+  function buildGrid(){
+    grid.length=0;
+    const cols = Math.max(8, Math.floor(W / (HEX * 1.6)));
+    const rows = Math.max(6, Math.floor(H / (HEX * 1.25)));
+    const startX = -cols * HEX * 0.85;
+    const startY = -rows * HEX * 0.95;
+    for(let r=0;r<rows;r++){
+      for(let c=0;c<cols;c++){
+        const x = startX + c * HEX * 1.7 + (r%2 ? HEX*0.85:0);
+        const y = startY + r * HEX * 1.45;
+        grid.push({ x,y, owner:null, troops:0, neighbors:[] });
+      }
+    }
+    for(let i=0;i<grid.length;i++){
+      const a=grid[i];
+      for(let j=0;j<grid.length;j++){
+        if(i===j) continue;
+        const b=grid[j];
+        if(Math.hypot(a.x-b.x,a.y-b.y) < HEX*1.75) a.neighbors.push(j);
+      }
+    }
+    needRender=true;
+  }
+
+  function worldToScreen(x,y){ return { x:(x+cam.x)*cam.scale + W/2, y:(y+cam.y)*cam.scale + H/2 }; }
+  function screenToWorld(sx,sy){ return { x:(sx - W/2)/cam.scale - cam.x, y:(sy - H/2)/cam.scale - cam.y }; }
+  function drawHex(cx,cy,r){ ctx.beginPath(); for(let i=0;i<6;i++){ const a=Math.PI/3*i + Math.PI/6; const x=cx+Math.cos(a)*r; const y=cy+Math.sin(a)*r; if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);} ctx.closePath(); }
+  function cellAt(wx,wy){ if(!grid||grid.length===0) return null; let best=null, bd=HEX*1.05; for(let i=0;i<grid.length;i++){ const d=Math.hypot(grid[i].x-wx,grid[i].y-wy); if(d<bd){ bd=d; best=i; } } return best; }
+  function isNeighbor(a,b){ if(!grid||!grid[a]||!grid[b]) return false; return Math.hypot(grid[a].x-grid[b].x, grid[a].y-grid[b].y) < HEX * 1.8; }
+
+  // players
+  const DEFAULT_COLORS = ['#ff4444','#3b82f6','#22c55e','#a855f7','#ffb020','#009688'];
+  function setupPlayers(n){
+    players = [];
+    for(let i=0;i<n;i++){
+      players.push({ id:i, color:DEFAULT_COLORS[i%DEFAULT_COLORS.length], name:'P'+(i+1), capital:null, alive:true });
+    }
+    updateLegend();
+    needRender=true;
+  }
+
+  function seedCapitalsCorners(){
+    if(!grid || grid.length===0) buildGrid();
+    grid.forEach(c=>{ c.owner=null; c.troops=0; });
+    const xs = grid.map(c=>c.x), ys = grid.map(c=>c.y);
+    const cxMin = Math.min(...xs), cxMax = Math.max(...xs);
+    const cyMin = Math.min(...ys), cyMax = Math.max(...ys);
+    const corners = [[cxMin,cyMin],[cxMax,cyMin],[cxMin,cyMax],[cxMax,cyMax]];
+    for(let p=0;p<players.length;p++){
+      const pt = corners[p % corners.length];
+      let bestIdx=0, bestD=Infinity;
+      for(let i=0;i<grid.length;i++){
+        const d=Math.hypot(grid[i].x-pt[0], grid[i].y-pt[1]);
+        if(d<bestD){ bestD=d; bestIdx=i; }
+      }
+      grid[bestIdx].owner = players[p].id;
+      grid[bestIdx].troops = 15 + Math.floor(Math.random()*10);
+      players[p].capital = bestIdx;
+    }
+    for(let i=0;i<grid.length;i++){
+      if(grid[i].owner==null && Math.random()<0.03){
+        grid[i].owner = Math.floor(Math.random()*players.length);
+        grid[i].troops = 2 + Math.floor(Math.random()*5);
+      }
+    }
+    needRender=true;
+  }
+
+  // production
+  function startProduction(ms){ if(prodTimer) clearInterval(prodTimer); prodTimer = setInterval(()=>{ if(grid && grid.length) grid.forEach(c=>{ if(c.owner != null) c.troops++; }); }, Math.max(50, parseInt(ms,10) || 900)); }
+
+  // animations
+  function animateMove(fromIdx,toIdx,color){ if(!grid||!grid[fromIdx]||!grid[toIdx]) return; animations.push({ fromIdx,toIdx,color,t:0 }); needRender=true; }
+  function updateAnimations(delta){ lctx.clearRect(0,0,W,H); if(!grid||grid.length===0) return; const remaining=[]; for(const a of animations){ a.t += delta*0.004; if(a.t>=1) continue; const A = worldToScreen(grid[a.fromIdx].x, grid[a.fromIdx].y); const B = worldToScreen(grid[a.toIdx].x, grid[a.toIdx].y); const x = A.x + (B.x - A.x) * a.t; const y = A.y + (B.y - A.y) * a.t; lctx.beginPath(); lctx.fillStyle = a.color; lctx.arc(x,y,6*Math.max(0.6,cam.scale),0,Math.PI*2); lctx.fill(); remaining.push(a); } animations = remaining; if(animations.length>0) needRender=true; }
+
+  // core move with optional broadcast
+  function moveTroopsCore(fromIdx,toIdx,ratio, localAction=true){
+    if(!grid||!grid[fromIdx]||!grid[toIdx]) return;
+    const f = grid[fromIdx], t = grid[toIdx];
+    const send = Math.floor(f.troops * ratio);
+    if(send <= 0) return;
+    f.troops = Math.max(0, f.troops - send);
+    animateMove(fromIdx,toIdx, (players[f.owner] ? players[f.owner].color : '#fff'));
+    if(t.owner === f.owner){
+      t.troops += send;
+    } else {
+      if(send > t.troops){
+        const defeatedOwner = t.owner;
+        t.owner = f.owner;
+        t.troops = send - t.troops;
+        if(defeatedOwner != null && players[defeatedOwner] && players[defeatedOwner].capital === toIdx){
+          if(players[defeatedOwner]) players[defeatedOwner].alive = false;
+          for(const c of grid){ if(c.owner === defeatedOwner){ c.owner = null; c.troops = 0; } }
+          playTone(180,0.25,'sawtooth');
+          checkVictory();
+        }
+      } else {
+        t.troops = Math.max(0, t.troops - send);
+      }
+    }
+    needRender=true;
+    if(localAction && window.multiplayer && window.multiplayer.getCurrentRoom()){
+      window.multiplayer.sendAction({ type:'move', from: fromIdx, to: toIdx, ratio: ratio });
+    }
+  }
+
+  function moveTroops(fromIdx,toIdx){
+    const ratio = ratioSlider ? parseInt(ratioSlider.value,10)/100 : 0.5;
+    moveTroopsCore(fromIdx,toIdx,ratio, true);
+  }
+
+  function applyRemoteAction(action){
+    if(!action) return;
+    if(action.type === 'move'){
+      moveTroopsCore(action.from, action.to, action.ratio, false);
+    } else if(action.type === 'start'){
+      // handled elsewhere
+    }
+  }
+
+  function botTick(){
+    if(!grid||grid.length===0) return;
+    for(let p=1;p<players.length;p++){
+      const bot = players[p];
+      if(!bot || !bot.alive) continue;
+      const capIdx = bot.capital;
+      if(typeof capIdx === 'number' && capIdx != null){
+        const cap = grid[capIdx];
+        if(cap){
+          let threat=null, threatDist=Infinity;
+          for(let i=0;i<grid.length;i++){
+            const cell=grid[i];
+            if(cell.owner!=null && cell.owner!==p){
+              const d=Math.hypot(cell.x-cap.x,cell.y-cap.y);
+              if(d < DEFEND_RADIUS && d < threatDist){ threatDist=d; threat=i; }
+            }
+          }
+          if(threat!=null){
+            const friendly = grid.map((c,idx)=> c.owner===p && c.troops>6 ? idx : null).filter(i=>i!==null);
+            if(friendly.length>0){
+              friendly.sort((a,b)=> Math.hypot(grid[a].x-cap.x,grid[a].y-cap.y)-Math.hypot(grid[b].x-cap.x,grid[b].y-cap.y));
+              moveTroopsCore(friendly[0], threat, 0.75, false);
+              continue;
+            }
+          }
+        }
+      }
+      const ownedIdx = grid.map((c,i)=> c.owner===p?i:null).filter(i=>i!==null);
+      if(ownedIdx.length===0) continue;
+      const originIdx = ownedIdx[Math.floor(Math.random()*ownedIdx.length)];
+      const origin = grid[originIdx];
+      if(!origin || origin.troops<5) continue;
+      const neigh = origin.neighbors.slice();
+      if(neigh.length===0) continue;
+      let weakest = neigh[0];
+      for(const ni of neigh) if(grid[ni].troops < grid[weakest].troops) weakest = ni;
+      moveTroopsCore(originIdx, weakest, 0.5, false);
+    }
+  }
+
+  // rendering
+  function drawCapitalMarker(cellIdx){
+    if(!grid[cellIdx]) return;
+    const c = grid[cellIdx];
+    const s = worldToScreen(c.x, c.y);
+    ctx.beginPath();
+    ctx.lineWidth = Math.max(2, 3 * cam.scale);
+    ctx.strokeStyle = 'rgba(255,215,0,0.95)';
+    ctx.arc(s.x,s.y,HEX*cam.scale + 6*cam.scale,0,Math.PI*2);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,215,0,0.95)';
+    ctx.font = (18 * Math.max(0.7, cam.scale)) + 'px Tahoma';
+    ctx.textAlign = 'center';
+    ctx.fillText('★', s.x, s.y - (HEX * cam.scale + 4 * cam.scale));
+  }
+
+  function render(){
+    if(!needRender && animations.length===0) return;
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle = '#0d1117';
+    ctx.fillRect(0,0,W,H);
+    if(!grid || grid.length===0) return;
+    for(let i=0;i<grid.length;i++){
+      const c = grid[i];
+      const s = worldToScreen(c.x, c.y);
+      drawHex(s.x,s.y,HEX*cam.scale);
+      ctx.fillStyle = c.owner==null ? '#ffffff' : (players[c.owner] ? players[c.owner].color : '#fff');
+      ctx.fill();
+      if(i === selected){ ctx.strokeStyle = '#00ff00'; ctx.lineWidth = 3; ctx.stroke(); }
+      ctx.fillStyle = '#000';
+      ctx.textAlign = 'center';
+      ctx.font = (14 * Math.max(0.7, cam.scale)) + 'px Tahoma';
+      ctx.fillText(c.troops, s.x, s.y + (5 * cam.scale));
+    }
+    for(const p of players){ if(p && p.capital != null && p.alive){ drawCapitalMarker(p.capital); } }
+    needRender=false;
+  }
+
+  function updateLegend(){
+    if(!legendEl) return;
+    legendEl.innerHTML='';
+    for(const p of players){
+      const div=document.createElement('div'); div.className='legend-item';
+      div.innerHTML = `<div style="width:14px;height:10px;background:${p.color};border-radius:4px"></div><div style="font-size:13px">${p.name}</div>`;
+      legendEl.appendChild(div);
+    }
+  }
+
+  // victory & lobby
+  function checkVictory(){
+    const alive = players.filter(p=>p && p.alive);
+    if(alive.length===1){ const winner=alive[0]; if(prodTimer) clearInterval(prodTimer); if(botTimer) clearInterval(botTimer); victoryText.textContent='الفائز هو:'; victorName.textContent = winner.name; victoryOverlay.style.display='flex'; playTone(880,0.5,'sine'); }
+  }
+
+  function returnToLobby(){
+    if(prodTimer) clearInterval(prodTimer);
+    if(botTimer) clearInterval(botTimer);
+    victoryOverlay.style.display='none';
+    document.getElementById('lobby').style.display = 'flex';
+    buildGrid();
+    setupPlayers(parseInt(playerCount.value,10)||4);
+    seedCapitalsCorners();
+    updateLegend();
+    needRender=true;
+  }
+  if(mainMenuBtn) mainMenuBtn.addEventListener('click', returnToLobby);
+  if(victoryToLobby) victoryToLobby.addEventListener('click', returnToLobby);
+
+  // input handlers
+  if(ratioSlider && ratioValue) ratioSlider.addEventListener('input', e=> ratioValue.textContent = e.target.value + '%');
+  gameCanvas.addEventListener('pointerdown', e=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; gameCanvas.setPointerCapture && gameCanvas.setPointerCapture(e.pointerId); needRender=true; });
+  gameCanvas.addEventListener('pointerup', e=>{ dragging=false; gameCanvas.releasePointerCapture && gameCanvas.releasePointerCapture(e.pointerId); needRender=true; });
+  gameCanvas.addEventListener('pointermove', e=>{ if(!dragging) return; cam.x += (e.clientX - lastX)/cam.scale; cam.y += (e.clientY - lastY)/cam.scale; lastX=e.clientX; lastY=e.clientY; needRender=true; });
+  gameCanvas.addEventListener('click', e=>{ const pos = screenToWorld(e.clientX, e.clientY); const idx = cellAt(pos.x, pos.y); if(idx==null) return; const cell = grid[idx]; if(selected===null){ if(cell.owner === 0) selected = idx; } else { if(idx !== selected && isNeighbor(selected, idx)){ moveTroops(selected, idx); } selected = null; } needRender=true; });
+
+  // start offline
+  function startGame(){ try{ if(!grid || grid.length < 8) buildGrid(); const cnt = playerCount ? Math.max(2, Math.min(4, parseInt(playerCount.value,10) || 4)) : 4; setupPlayers(cnt); seedCapitalsCorners(); startProduction(prodRate ? parseInt(prodRate.value,10) : 900); if(botTimer) clearInterval(botTimer); botTimer = setInterval(botTick, 900); document.getElementById('lobby').style.display = 'none'; updateLegend(); needRender=true; }catch(err){ console.error(err); dbg.style.display='block'; dbg.textContent=String(err);} }
+  window.startGame = startGame; if(startBtn) startBtn.addEventListener('click', startGame);
+
+  // loop
+  let last = performance.now();
+  function frame(now){ const dt = now - last; last = now; try{ updateAnimations(dt); if(needRender || animations.length>0) render(); }catch(e){ console.error(e); dbg.style.display='block'; dbg.textContent=String(e);} requestAnimationFrame(frame); }
+  requestAnimationFrame(frame);
+
+  // initial
+  buildGrid(); setupPlayers(4); seedCapitalsCorners(); updateLegend(); needRender=true;
+
+});
+
+// helper functions (outside DOMContentLoaded)
+function worldToScreen(x,y){ return window._worldToScreen ? window._worldToScreen(x,y) : {x:0,y:0}; }
+function screenToWorld(sx,sy){ return window._screenToWorld ? window._screenToWorld(sx,sy) : {x:0,y:0}; }
+
+</script>
+
+</body>
+</html>
