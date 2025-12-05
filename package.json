@@ -1,15 +1,11 @@
 {
-  "name": "territorial-online-server",
+  "name": "territorial-ai",
   "version": "1.0.0",
-  "description": "WebSocket server for Territorial game",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "ws": "^8.15.1"
-  },
-  "engines": {
-    "node": ">=16"
+    "ws": "^8.12.1"
   }
 }
