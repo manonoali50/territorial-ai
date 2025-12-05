@@ -2,11 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Territorial Online</title>
-
 <style>
-body { margin:0; overflow:hidden; background:#111; }
+body { margin:0; overflow:hidden; background:#111; color:#fff; font-family:Tahoma,Arial,sans-serif; }
 
 /* زر الرجوع */
 #backBtn {
@@ -39,98 +38,167 @@ body { margin:0; overflow:hidden; background:#111; }
   position: fixed;
   top: 50px;
   left: 10px;
-  width: 90%;
+  width: calc(100% - 20px);
+  max-width:1000px;
   height: 40%;
-  background:#000d;
+  background:rgba(0,0,0,0.92);
   color:#0f0;
   padding:10px;
   overflow-y:auto;
   display:none;
-  border:1px solid #0f0;
+  border:2px solid #0f0;
+  z-index:2000;
+  box-sizing:border-box;
 }
 
 #closeConsole {
   position: absolute;
-  top: 5px;
-  right: 10px;
+  top: 6px;
+  right: 12px;
   color:red;
   font-weight:bold;
   cursor:pointer;
+  font-size:18px;
 }
-canvas { background:black; display:block; }
+
+canvas { display:block; width:100%; height:100vh; background:#fff; }
+#logArea{ white-space:pre-wrap; font-family:monospace; font-size:14px; }
 </style>
 </head>
-
 <body>
 
-<button id="backBtn" onclick="location.reload()">Back</button>
-<button id="consoleBtn" onclick="toggleConsole()">Console</button>
+<button id="backBtn" title="Back to lobby" onclick="goBack()">Back</button>
+<button id="consoleBtn" title="Open Console" onclick="toggleConsole()">Console</button>
 
-<div id="consoleBox">
+<div id="consoleBox" aria-hidden="true">
   <span id="closeConsole" onclick="toggleConsole()">X</span>
-  <pre id="logArea"></pre>
+  <div id="logArea"></div>
 </div>
 
 <canvas id="game"></canvas>
 
 <script>
+/* ---------- Console UI helpers ---------- */
 function log(msg){
-  document.getElementById("logArea").innerText += msg + "\n";
+  const el = document.getElementById("logArea");
+  const t = typeof msg === 'string' ? msg : JSON.stringify(msg);
+  el.innerText += t + "\n";
+  el.parentElement.scrollTop = el.parentElement.scrollHeight;
 }
-
 function toggleConsole(){
-  let box = document.getElementById("consoleBox");
-  box.style.display = box.style.display === "block" ? "none" : "block";
+  const box = document.getElementById("consoleBox");
+  if(box.style.display === "block"){
+    box.style.display = "none";
+    box.setAttribute('aria-hidden','true');
+  } else {
+    box.style.display = "block";
+    box.setAttribute('aria-hidden','false');
+  }
+}
+function goBack(){
+  // أفضل سلوك: ارجع للتاريخ السابق (لوبي)
+  if(window.history.length>1) history.back(); else location.reload();
 }
 
+/* ---------- Canvas & WebSocket ---------- */
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+function resize(){ canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+window.addEventListener('resize', resize);
+resize();
 
-let ws = new WebSocket("wss://" + window.location.host);
-let myColor = "#fff";
-let players = {};
+let players = {}; // map color -> {x,y}
+let myColor = '#ffffff';
 
-ws.onopen = () => {
-  log("Connected!");
-  ws.send(JSON.stringify({ type:"join", room:"Room" }));
-};
+/* Build a resilient WebSocket URL:
+   - try same-origin first
+   - if it fails, fallback to known server (Railway host)
+*/
+const FALLBACK_WS_HOST = 'territorial-ai-production.up.railway.app'; // <-- لو غيرت السيرفر غيّر هنا
+function makeWsUrl(hostToTry){
+  const proto = (location.protocol === 'https:') ? 'wss' : 'ws';
+  return `${proto}://${hostToTry}`;
+}
 
-ws.onmessage = (msg) => {
-  const data = JSON.parse(msg.data);
+function connectWebSocket(){
+  let triedFallback = false;
+  let ws = null;
 
-  if (data.type === "joined") {
-    myColor = data.color;
-    log("You joined with color: " + myColor);
+  function tryConnect(host){
+    const url = makeWsUrl(host);
+    log("Attempt WS -> " + url);
+    ws = new WebSocket(url);
+
+    ws.addEventListener('open', ()=>{
+      log("Connected to " + host);
+      ws.send(JSON.stringify({ type:'join', room:'Room' }));
+    });
+
+    ws.addEventListener('message', (ev)=>{
+      try {
+        const data = JSON.parse(ev.data);
+        // messages: joined, count, update, full
+        if(data.type === 'joined'){
+          myColor = data.color || myColor;
+          log("Joined: color=" + myColor);
+        } else if(data.type === 'count'){
+          log("Players in room: " + data.players);
+        } else if(data.type === 'update'){
+          // data.color, x, y
+          if(data.color){
+            players[data.color] = { x: data.x, y: data.y };
+          }
+        } else if(data.type === 'full'){
+          log("Room is full");
+        }
+      } catch(e){
+        log("msg parse error: " + e.message);
+      }
+    });
+
+    ws.addEventListener('error', (e)=>{
+      log("WebSocket error: " + (e && e.message ? e.message : String(e)));
+    });
+
+    ws.addEventListener('close', (ev)=>{
+      log("Disconnected.");
+      // if closed before we had a successful connect, try fallback once
+      if(!triedFallback && host !== FALLBACK_WS_HOST){
+        triedFallback = true;
+        log("Trying fallback host: " + FALLBACK_WS_HOST);
+        setTimeout(()=> tryConnect(FALLBACK_WS_HOST), 400);
+      }
+    });
+
+    // mouse movement -> send update
+    window.onmousemove = (e)=>{
+      if(ws && ws.readyState === WebSocket.OPEN){
+        ws.send(JSON.stringify({ type:'update', x: e.clientX, y: e.clientY }));
+      }
+    };
   }
 
-  if (data.type === "count") {
-    log("Players in room: " + data.players);
-  }
+  // first try same-origin host (location.host)
+  tryConnect(location.host);
+}
 
-  if (data.type === "update") {
-    players[data.color] = { x:data.x, y:data.y };
-  }
-};
+connectWebSocket();
 
-ws.onerror = (e) => log("Error: "+e);
-ws.onclose = () => log("Disconnected.");
-
-document.addEventListener("mousemove", (e)=>{
-  ws.send(JSON.stringify({ type:"update", x:e.clientX, y:e.clientY }));
-});
-
+/* ---------- render loop ---------- */
 function render(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
-
-  for (let c in players){
-    ctx.fillStyle = c;
+  for(const color in players){
+    const p = players[color];
+    if(!p) continue;
+    ctx.fillStyle = color || '#000';
     ctx.beginPath();
-    ctx.arc(players[c].x, players[c].y, 15, 0, Math.PI*2);
+    ctx.arc(p.x, p.y, 14, 0, Math.PI*2);
     ctx.fill();
+    // draw border
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#222';
+    ctx.stroke();
   }
-
   requestAnimationFrame(render);
 }
 render();
